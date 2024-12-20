@@ -1,0 +1,21 @@
+CREATE TABLE users (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(255) NOT NULL UNIQUE,
+  password VARCHAR(255) NOT NULL,
+  role ENUM('admin', 'employee') NOT NULL DEFAULT 'employee',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE flows (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  description TEXT
+);
+
+CREATE TABLE user_flows (
+  user_id INT,
+  flow_id INT,
+  PRIMARY KEY (user_id, flow_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (flow_id) REFERENCES flows(id) ON DELETE CASCADE
+);
