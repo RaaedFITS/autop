@@ -1,5 +1,5 @@
 // src/pages/Home.js
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useContext } from 'react';
 import {
   Container,
   Card,
@@ -9,14 +9,17 @@ import {
   Modal,
   Spinner,
 } from 'react-bootstrap';
+import AuthContext from '../contexts/AuthContext'; // Import AuthContext
+import axios from 'axios'; // Import Axios for API calls
 
 const Home = () => {
+  // Access AuthContext
+  const { user, token } = useContext(AuthContext);
+
   // State Variables
-  const [flowNames, setFlowNames] = useState([
-    'Flow 1',
-    'Flow 2',
-    'Flow 3',
-  ]); // Replace with actual flow names fetched from backend
+  const [flowNames, setFlowNames] = useState([]);
+  const [loadingFlows, setLoadingFlows] = useState(true); // For flow fetching state
+  const [flowError, setFlowError] = useState(''); // For flow fetching errors
   const [selectedFlow, setSelectedFlow] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [alert, setAlert] = useState({ show: false, message: '', variant: '' });
@@ -26,6 +29,42 @@ const Home = () => {
   // Refs
   const fileInputRef = useRef(null);
   const dropzoneRef = useRef(null);
+
+  // Fetch User Flows
+  useEffect(() => {
+    const fetchUserFlows = async () => {
+      if (!user || !user.id) {
+        setFlowError('User not authenticated.');
+        setLoadingFlows(false);
+        return;
+      }
+
+      try {
+        const response = await axios.get(`http://localhost:5000/api/public/users/${user.id}/flows`, {
+          headers: {
+            // Include Authorization header if the route is protected
+            Authorization: `Bearer ${token}`,
+          },
+        });
+
+        if (response.data && response.data.flows) {
+          const fetchedFlows = response.data.flows.map(flow => flow.name);
+          setFlowNames(fetchedFlows);
+        } else {
+          setFlowError('No flows found for the user.');
+        }
+      } catch (error) {
+        console.error('Error fetching user flows:', error);
+        setFlowError(
+          error.response?.data?.message || 'Failed to fetch user flows.'
+        );
+      } finally {
+        setLoadingFlows(false);
+      }
+    };
+
+    fetchUserFlows();
+  }, [user, token]);
 
   // Handlers
   const handleFlowChange = (e) => {
@@ -99,24 +138,25 @@ const Home = () => {
     formData.append('flowName', selectedFlow);
 
     try {
-      setLoadingMessage('Logging in to Parabola...');
+      setLoadingMessage('Processing your request...');
       setShowLoading(true);
 
       // Trigger Python script
-      const response = await fetch('/api/trigger-python', {
-        method: 'POST',
-        body: formData,
+      const response = await axios.post('/api/trigger-python', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          // Authorization header is already set globally via AuthContext
+        },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to trigger Python script');
+      if (response.data) {
+        showAlertMessage(response.data.message || 'Flow processed successfully.', 'success');
+      } else {
+        showAlertMessage('Flow processed successfully.', 'success');
       }
-
-      const result = await response.json();
-      showAlertMessage(result.message, 'success');
     } catch (error) {
       console.error('Error:', error);
-      showAlertMessage('Failed to trigger Python script.', 'danger');
+      showAlertMessage(error.response?.data?.message || 'Failed to trigger Python script.', 'danger');
     } finally {
       setShowLoading(false);
     }
@@ -125,17 +165,21 @@ const Home = () => {
   const handleCancelClick = async () => {
     try {
       setLoadingMessage('Cancelling operation...');
+      setShowLoading(true);
+
       // Assuming there's an API endpoint to cancel the Python script
-      const response = await fetch('/api/cancel-python-script', {
-        method: 'POST',
+      const response = await axios.post('/api/cancel-python-script', {}, {
+        headers: {
+          'Content-Type': 'application/json',
+          // Authorization header is already set globally via AuthContext
+        },
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to cancel Python script');
+      if (response.data) {
+        showAlertMessage(response.data.message || 'Operation cancelled successfully.', 'info');
+      } else {
+        showAlertMessage('Operation cancelled successfully.', 'info');
       }
-
-      const result = await response.json();
-      showAlertMessage(result.message, 'info');
     } catch (error) {
       console.error('Error:', error);
       showAlertMessage('Failed to cancel Python script.', 'danger');
@@ -158,20 +202,29 @@ const Home = () => {
           {/* Dropdown for selecting the flow */}
           <Form.Group className="mb-4" controlId="flowSelection">
             <Form.Label className="fw-bold">Select the Flow:</Form.Label>
-            <Form.Select
-              value={selectedFlow}
-              onChange={handleFlowChange}
-              required
-            >
-              <option value="" disabled>
-                Choose a flow
-              </option>
-              {flowNames.map((name, index) => (
-                <option key={index} value={name}>
-                  {name}
+            {loadingFlows ? (
+              <div className="d-flex align-items-center">
+                <Spinner animation="border" size="sm" className="me-2" />
+                <span>Loading flows...</span>
+              </div>
+            ) : flowError ? (
+              <Alert variant="danger">{flowError}</Alert>
+            ) : (
+              <Form.Select
+                value={selectedFlow}
+                onChange={handleFlowChange}
+                required
+              >
+                <option value="" disabled>
+                  Choose a flow
                 </option>
-              ))}
-            </Form.Select>
+                {flowNames.map((name, index) => (
+                  <option key={index} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </Form.Select>
+            )}
           </Form.Group>
 
           {/* Drag-and-drop area for CSV/Excel file upload */}

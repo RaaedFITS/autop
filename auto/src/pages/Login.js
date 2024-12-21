@@ -37,9 +37,6 @@ const Login = () => {
       // Use the login function from AuthContext to update the authentication state
       login(user, token);
 
-      // Optionally, set the token in axios default headers for future requests
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-
       // Conditional navigation based on user role
       if (user.role === 'admin') {
         navigate('/admin');

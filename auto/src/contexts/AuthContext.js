@@ -1,5 +1,6 @@
 // src/contexts/AuthContext.js
-import React, { createContext, useState } from 'react';
+import React, { createContext, useState, useEffect } from 'react';
+import axios from 'axios'; // Import Axios
 
 // Create the AuthContext with default values
 const AuthContext = createContext({
@@ -27,6 +28,7 @@ export const AuthProvider = ({ children }) => {
     setToken(jwtToken);
     localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('token', jwtToken);
+    axios.defaults.headers.common['Authorization'] = `Bearer ${jwtToken}`; // Set Axios header
   };
 
   // Function to handle logout
@@ -35,7 +37,15 @@ export const AuthProvider = ({ children }) => {
     setToken(null);
     localStorage.removeItem('user');
     localStorage.removeItem('token');
+    delete axios.defaults.headers.common['Authorization']; // Remove Axios header
   };
+
+  // Set Axios header on initial load if token exists
+  useEffect(() => {
+    if (token) {
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+    }
+  }, [token]);
 
   return (
     <AuthContext.Provider value={{ user, token, login, logout }}>
