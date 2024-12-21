@@ -1,64 +1,177 @@
 // src/pages/Admin.js
-import React, { useState } from 'react';
-import Navbar from '../components/Navbar';
-import { Container, Table, Button, Modal, Form, Badge, Alert } from 'react-bootstrap';
+import React, { useState, useEffect, useContext } from 'react';
+import { Container, Table, Button, Badge, Alert, Spinner } from 'react-bootstrap';
+import AddUserModal from '../components/AdduserModal'; // Corrected import case
+import EditUserModal from '../components/EditUserModal';
+import ManageFlowsModal from '../components/ManageFlowsModal';
+import AuthContext from '../contexts/AuthContext';
+import FlowsManagementModal from '../components/FlowsManagementModal'; // New import
+
+import axios from 'axios';
 
 const Admin = () => {
-  // Dummy data for users and flows
-  const [users, setUsers] = useState([
-    { id: 1, email: 'admin@example.com', role: 'admin', createdAt: '2024-01-01 10:00' },
-    { id: 2, email: 'employee@example.com', role: 'employee', createdAt: '2024-02-15 14:30' },
-  ]);
-
-  const [flows, setFlows] = useState([
-    { id: 1, name: 'Flow A', description: 'Description for Flow A' },
-    { id: 2, name: 'Flow B', description: 'Description for Flow B' },
-  ]);
+  const { token } = useContext(AuthContext); // Access the JWT token
+  const [users, setUsers] = useState([]);
+  const [flows, setFlows] = useState([]);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+  const [loadingFlows, setLoadingFlows] = useState(true);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
 
   const [showAddUserModal, setShowAddUserModal] = useState(false);
   const [showEditUserModal, setShowEditUserModal] = useState(false);
   const [showManageFlowsModal, setShowManageFlowsModal] = useState(false);
+  
+  const [showFlowsManagementModal, setShowFlowsManagementModal] = useState(false); // New state
   const [currentUser, setCurrentUser] = useState(null);
   const [currentUserFlows, setCurrentUserFlows] = useState([]);
 
-  const handleAddUser = (newUser) => {
-    setUsers([...users, { ...newUser, id: users.length + 1, createdAt: new Date().toISOString().slice(0, 16).replace('T', ' ') }]);
-  };
-
-  const handleEditUser = (updatedUser) => {
-    setUsers(users.map(user => user.id === updatedUser.id ? updatedUser : user));
-  };
-
-  const handleDeleteUser = (id) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      setUsers(users.filter(user => user.id !== id));
+  // Fetch Users
+  const fetchUsers = async () => {
+    setLoadingUsers(true);
+    try {
+      const response = await axios.get('http://localhost:5000/api/public/users', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log('Fetch Users Response:', response.data); // Debugging line
+      setUsers(response.data.users); // Adjust based on API response
+    } catch (err) {
+      console.error('Fetch Users Error:', err); // Debugging line
+      setError(err.response?.data?.message || 'Failed to fetch users.');
+    } finally {
+      setLoadingUsers(false);
     }
   };
 
-  const handleManageFlows = (user) => {
+  // Fetch Flows
+  const fetchFlows = async () => {
+    setLoadingFlows(true);
+    try {
+      const response = await axios.get('http://localhost:5000/api/flows', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log('Fetch Flows Response:', response.data); // Debugging line
+      setFlows(response.data.flows); // Adjust based on API response
+    } catch (err) {
+      console.error('Fetch Flows Error:', err); // Debugging line
+      setError(err.response?.data?.message || 'Failed to fetch flows.');
+    } finally {
+      setLoadingFlows(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+    fetchFlows();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Handle Add User
+  const handleAddUser = async (newUser) => {
+    try {
+      const response = await axios.post('http://localhost:5000/api/auth/register', newUser, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      console.log('Add User Response:', response.data); // Debugging line
+      setUsers([...users, response.data.user]); // Adjust based on API response
+      setSuccess('User added successfully.');
+    } catch (err) {
+      console.error('Add User Error:', err); // Debugging line
+      setError(err.response?.data?.message || 'Failed to add user.');
+    }
+  };
+
+  // Handle Edit User
+  const handleEditUser = async (updatedUser) => {
+    try {
+      const response = await axios.put(`http://localhost:5000/api/public/users/${updatedUser.id}`, updatedUser, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      console.log('Update User Response:', response.data); // Debugging line
+      if (response.data.user) {
+        setUsers(users.map(user => user.id === updatedUser.id ? response.data.user : user));
+        setSuccess('User updated successfully.');
+      } else {
+        setError('Updated user data is missing from the response.');
+      }
+    } catch (err) {
+      console.error('Edit User Error:', err); // Debugging line
+      setError(err.response?.data?.message || 'Failed to update user.');
+    }
+  };
+
+  // Handle Delete User
+  const handleDeleteUser = async (id) => {
+    if (window.confirm('Are you sure you want to delete this user?')) {
+      try {
+        await axios.delete(`http://localhost:5000/api/public/users/${id}`, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        setUsers(users.filter(user => user.id !== id));
+        setSuccess('User deleted successfully.');
+      } catch (err) {
+        console.error('Delete User Error:', err); // Debugging line
+        setError(err.response?.data?.message || 'Failed to delete user.');
+      }
+    }
+  };
+
+  // Handle Manage Flows
+  const handleManageFlows = async (user) => {
     setCurrentUser(user);
-    // For simplicity, let's assume user has flows with IDs 1 and 2
-    setCurrentUserFlows([1]); // Dummy data
-    setShowManageFlowsModal(true);
+    try {
+      const response = await axios.get(`http://localhost:5000/api/public/users/${user.id}/flows`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      console.log('Manage Flows Response:', response.data); // Debugging line
+      setCurrentUserFlows(response.data.flows.map(flow => flow.id)); // Adjust based on API response
+      setShowManageFlowsModal(true);
+    } catch (err) {
+      console.error('Manage Flows Error:', err); // Debugging line
+      setError(err.response?.data?.message || 'Failed to fetch user flows.');
+    }
   };
 
   return (
     <>
-    
       <Container className="mt-4">
         <div className="d-flex justify-content-between align-items-center mb-4">
           <h1 className="fw-bold">Admin Panel</h1>
           <div>
             <Button variant="primary" onClick={() => setShowAddUserModal(true)}>Add User</Button>
-            <Button variant="secondary" className="ms-2" onClick={() => alert('Manage Flows functionality not implemented yet.')}>Manage Flows</Button>
+            <Button variant="secondary" className="ms-2" onClick={() => setShowFlowsManagementModal(true)}>
+
+Manage Flows
+
+</Button>
           </div>
         </div>
 
-        {/* Alert for messages */}
-        {/* Replace with dynamic messages when backend is connected */}
-        {false && <Alert variant="info">This is an info alert</Alert>}
+        {/* Display Success Messages */}
+        {success && <Alert variant="success" onClose={() => setSuccess('')} dismissible>{success}</Alert>}
 
-        {users.length > 0 ? (
+        {/* Display Error Messages */}
+        {error && <Alert variant="danger" onClose={() => setError('')} dismissible>{error}</Alert>}
+
+        {loadingUsers ? (
+          <div className="d-flex justify-content-center">
+            <Spinner animation="border" variant="primary" />
+          </div>
+        ) : users.length > 0 ? (
           <Table striped bordered hover responsive>
             <thead className="table-dark">
               <tr>
@@ -69,7 +182,7 @@ const Admin = () => {
               </tr>
             </thead>
             <tbody>
-              {users.map(user => (
+              {users.filter(user => user).map(user => (
                 <tr key={user.id}>
                   <td>{user.email}</td>
                   <td>
@@ -139,209 +252,23 @@ const Admin = () => {
           user={currentUser} 
           flows={flows} 
           userFlows={currentUserFlows}
-          setUserFlows={setCurrentUserFlows}
+          setUserFlows={setCurrentUserFlows} // Pass the setter function
         />
       )}
+      {/* Flows Management Modal (CRUD Operations) */}
+
+      <FlowsManagementModal 
+
+        show={showFlowsManagementModal} 
+
+        handleClose={() => setShowFlowsManagementModal(false)} 
+
+        flows={flows} 
+
+        refreshFlows={fetchFlows}
+
+      />
     </>
-  );
-};
-
-// Add User Modal Component
-const AddUserModal = ({ show, handleClose, handleAddUser }) => {
-  const [form, setForm] = useState({ email: '', password: '', role: 'employee' });
-
-  const handleChange = (e) => {
-    setForm({...form, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    handleAddUser(form);
-    handleClose();
-    setForm({ email: '', password: '', role: 'employee' });
-  };
-
-  return (
-    <Modal show={show} onHide={handleClose}>
-      <Form onSubmit={handleSubmit}>
-        <Modal.Header closeButton>
-          <Modal.Title>Add New User</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form.Group className="mb-3" controlId="addEmail">
-            <Form.Label>Email</Form.Label>
-            <Form.Control 
-              type="email" 
-              name="email"
-              placeholder="Enter email" 
-              value={form.email}
-              onChange={handleChange}
-              required 
-            />
-          </Form.Group>
-          <Form.Group className="mb-3" controlId="addPassword">
-            <Form.Label>Password</Form.Label>
-            <Form.Control 
-              type="password" 
-              name="password"
-              placeholder="Enter password" 
-              value={form.password}
-              onChange={handleChange}
-              required 
-            />
-          </Form.Group>
-          <Form.Group className="mb-3" controlId="addRole">
-            <Form.Label>Role</Form.Label>
-            <Form.Select 
-              name="role" 
-              value={form.role} 
-              onChange={handleChange} 
-              required
-            >
-              <option value="admin">Admin</option>
-              <option value="employee">Employee</option>
-            </Form.Select>
-          </Form.Group>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={handleClose}>Cancel</Button>
-          <Button variant="primary" type="submit">Add User</Button>
-        </Modal.Footer>
-      </Form>
-    </Modal>
-  );
-};
-
-// Edit User Modal Component
-const EditUserModal = ({ show, handleClose, user, handleEditUser }) => {
-  const [form, setForm] = useState({ id: user.id, email: user.email, role: user.role, password: '' });
-
-  const handleChange = (e) => {
-    setForm({...form, [e.target.name]: e.target.value });
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // If password is left blank, keep the current password (dummy)
-    const updatedUser = { 
-      id: form.id, 
-      email: form.email, 
-      role: form.role, 
-      createdAt: user.createdAt 
-    };
-    handleEditUser(updatedUser);
-    handleClose();
-  };
-
-  return (
-    <Modal show={show} onHide={handleClose}>
-      <Form onSubmit={handleSubmit}>
-        <Modal.Header closeButton>
-          <Modal.Title>Edit User</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form.Group className="mb-3" controlId="editUserId">
-            <Form.Label>User ID</Form.Label>
-            <Form.Control 
-              type="text" 
-              name="id"
-              value={form.id}
-              readOnly 
-            />
-          </Form.Group>
-          <Form.Group className="mb-3" controlId="editEmail">
-            <Form.Label>Email</Form.Label>
-            <Form.Control 
-              type="email" 
-              name="email"
-              placeholder="Enter email" 
-              value={form.email}
-              onChange={handleChange}
-              required 
-            />
-          </Form.Group>
-          <Form.Group className="mb-3" controlId="editPassword">
-            <Form.Label>Password (Leave blank to keep current)</Form.Label>
-            <Form.Control 
-              type="password" 
-              name="password"
-              placeholder="Enter new password" 
-              value={form.password}
-              onChange={handleChange}
-            />
-          </Form.Group>
-          <Form.Group className="mb-3" controlId="editRole">
-            <Form.Label>Role</Form.Label>
-            <Form.Select 
-              name="role" 
-              value={form.role} 
-              onChange={handleChange} 
-              required
-            >
-              <option value="admin">Admin</option>
-              <option value="employee">Employee</option>
-            </Form.Select>
-          </Form.Group>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={handleClose}>Cancel</Button>
-          <Button variant="warning" type="submit">Update User</Button>
-        </Modal.Footer>
-      </Form>
-    </Modal>
-  );
-};
-
-// Manage Flows Modal Component
-const ManageFlowsModal = ({ show, handleClose, user, flows, userFlows, setUserFlows }) => {
-  const [selectedFlows, setSelectedFlows] = useState(userFlows);
-
-  const handleCheckboxChange = (e) => {
-    const flowId = parseInt(e.target.value);
-    if (e.target.checked) {
-      setSelectedFlows([...selectedFlows, flowId]);
-    } else {
-      setSelectedFlows(selectedFlows.filter(id => id !== flowId));
-    }
-  };
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    // Update user flows (dummy)
-    setUserFlows(selectedFlows);
-    handleClose();
-    // Optionally, update the user state in Admin page
-    alert(`Flows updated for user ${user.email}`);
-  };
-
-  return (
-    <Modal show={show} onHide={handleClose}>
-      <Form onSubmit={handleSubmit}>
-        <Modal.Header closeButton>
-          <Modal.Title>Manage Flows for {user.email}</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          {flows.length > 0 ? (
-            flows.map(flow => (
-              <Form.Check 
-                key={flow.id}
-                type="checkbox"
-                label={`${flow.name} - ${flow.description}`}
-                value={flow.id}
-                checked={selectedFlows.includes(flow.id)}
-                onChange={handleCheckboxChange}
-              />
-            ))
-          ) : (
-            <p>No flows available.</p>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={handleClose}>Cancel</Button>
-          <Button variant="primary" type="submit">Save Flows</Button>
-        </Modal.Footer>
-      </Form>
-    </Modal>
   );
 };
 

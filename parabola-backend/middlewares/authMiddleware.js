@@ -1,33 +1,30 @@
 // middlewares/authMiddleware.js
 const jwt = require('jsonwebtoken');
-const dotenv = require('dotenv');
+const pool = require('../db');
 
-dotenv.config();
-
+// Authenticate Token Middleware
 const authenticateToken = (req, res, next) => {
-  // Get token from headers
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  // Token format: 'Bearer TOKEN'
+  const token = authHeader && authHeader.split(' ')[1];
+  if (!token) return res.status(401).json({ message: 'Access Token Required' });
 
-  if (!token) {
-    return res.status(401).json({ message: 'Access token missing' });
-  }
-
-  // Verify token
   jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
     if (err) {
-      return res.status(403).json({ message: 'Invalid access token' });
+      console.error('JWT Verification Error:', err);
+      return res.status(403).json({ message: 'Invalid Access Token' });
     }
-
-    req.user = user; // Attach user payload to request
+    req.user = user; // Attach user info to request
     next();
   });
 };
 
+// Authorize Roles Middleware
 const authorizeRoles = (...roles) => {
   return (req, res, next) => {
+    if (!req.user) return res.status(401).json({ message: 'Unauthorized' });
     if (!roles.includes(req.user.role)) {
-      return res.status(403).json({ message: 'Insufficient permissions' });
+      return res.status(403).json({ message: 'Forbidden: Insufficient Permissions' });
     }
     next();
   };

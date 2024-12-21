@@ -40,8 +40,15 @@ const Login = () => {
       // Optionally, set the token in axios default headers for future requests
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
-      // Navigate to the home page or any other protected route
-      navigate('/home');
+      // Conditional navigation based on user role
+      if (user.role === 'admin') {
+        navigate('/admin');
+      } else if (user.role === 'employee') {
+        navigate('/home');
+      } else {
+        // Fallback for unexpected roles
+        navigate('/home');
+      }
     } catch (error) {
       // Handle errors
       if (error.response) {

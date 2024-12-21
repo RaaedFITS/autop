@@ -17,39 +17,18 @@ const createFlow = async (req, res) => {
   const { name, description } = req.body;
 
   try {
+    if (!name.trim()) {
+      return res.status(400).json({ message: 'Flow name is required.' });
+    }
+
     const [result] = await pool.query(
       'INSERT INTO flows (name, description) VALUES (?, ?)',
       [name, description]
     );
 
-    res.status(201).json({ message: 'Flow created successfully', flowId: result.insertId });
+    res.status(201).json({ message: 'Flow created successfully', flow: { id: result.insertId, name, description } });
   } catch (error) {
     console.error('Create Flow Error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-};
-
-// Update Flow
-const updateFlow = async (req, res) => {
-  const flowId = req.params.id;
-  const { name, description } = req.body;
-
-  try {
-    // Check if flow exists
-    const [flows] = await pool.query('SELECT * FROM flows WHERE id = ?', [flowId]);
-    if (flows.length === 0) {
-      return res.status(404).json({ message: 'Flow not found' });
-    }
-
-    // Update flow
-    await pool.query(
-      'UPDATE flows SET name = ?, description = ? WHERE id = ?',
-      [name, description, flowId]
-    );
-
-    res.json({ message: 'Flow updated successfully' });
-  } catch (error) {
-    console.error('Update Flow Error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -65,7 +44,13 @@ const deleteFlow = async (req, res) => {
       return res.status(404).json({ message: 'Flow not found' });
     }
 
-    // Delete flow (due to ON DELETE CASCADE, related user_flows will be deleted)
+    // Check if flow is assigned to any user
+    const [userFlows] = await pool.query('SELECT * FROM user_flows WHERE flow_id = ?', [flowId]);
+    if (userFlows.length > 0) {
+      return res.status(400).json({ message: 'Cannot delete flow assigned to users. Unassign it first.' });
+    }
+
+    // Delete flow
     await pool.query('DELETE FROM flows WHERE id = ?', [flowId]);
 
     res.json({ message: 'Flow deleted successfully' });
@@ -75,4 +60,4 @@ const deleteFlow = async (req, res) => {
   }
 };
 
-module.exports = { getFlows, createFlow, updateFlow, deleteFlow };
+module.exports = { getFlows, createFlow, deleteFlow };

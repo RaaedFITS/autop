@@ -6,7 +6,7 @@ const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
 const flowRoutes = require('./routes/flows');
 const pythonRoutes = require('./routes/python');
-
+const publicUsersRoute = require('./routes/publicUsers');
 dotenv.config();
 
 const app = express();
@@ -21,6 +21,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/flows', flowRoutes);
 app.use('/api/python', pythonRoutes);
+app.use('/api/public/users', publicUsersRoute); // Public user management routes
 
 // Root Route
 app.get('/', (req, res) => {
