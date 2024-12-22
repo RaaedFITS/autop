@@ -11,6 +11,8 @@ import {
 } from 'react-bootstrap';
 import AuthContext from '../contexts/AuthContext'; // Import AuthContext
 import axios from 'axios'; // Import Axios for API calls
+import { io } from 'socket.io-client'; // Import Socket.io client
+import './Home.css'; // Import custom CSS if using custom classes
 
 const Home = () => {
   // Access AuthContext
@@ -30,6 +32,71 @@ const Home = () => {
   const fileInputRef = useRef(null);
   const dropzoneRef = useRef(null);
 
+  // Socket.io instance
+  const [socket, setSocket] = useState(null);
+
+  // Setup Socket.io connection
+  useEffect(() => {
+    const newSocket = io('http://localhost:5000', {
+      transports: ['websocket'],
+    });
+
+    setSocket(newSocket);
+
+    // Join room based on user ID
+    if (user && user.id) {
+      newSocket.emit('joinRoom', 'test-user'); // Replace 'test-user' with dynamic user ID if available
+    }
+
+    // Cleanup on unmount
+    return () => newSocket.close();
+  }, [user]);
+
+  // Listen for Socket.io events
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('scriptStarted', (data) => {
+      console.log('Event: scriptStarted', data);
+      setLoadingMessage(data.message);
+      setShowLoading(true);
+      setAlert({ show: false, message: '', variant: '' });
+    });
+
+    socket.on('scriptSuccess', (data) => {
+      console.log('Event: scriptSuccess', data);
+      setShowLoading(false);
+      setAlert({ show: true, message: data.message, variant: 'success' });
+    });
+
+    socket.on('scriptFailure', (data) => {
+      console.log('Event: scriptFailure', data);
+      setShowLoading(false);
+      setAlert({ show: true, message: data.message, variant: 'danger' });
+    });
+
+    socket.on('scriptError', (data) => {
+      console.log('Event: scriptError', data);
+      setShowLoading(false);
+      setAlert({ show: true, message: data.message, variant: 'danger' });
+    });
+
+    socket.on('scriptCancelled', (data) => {
+      console.log('Event: scriptCancelled', data);
+      setShowLoading(false);
+      setAlert({ show: true, message: data.message, variant: 'info' });
+    });
+
+    // Cleanup listeners on unmount
+    return () => {
+      socket.off('scriptStarted');
+      socket.off('scriptSuccess');
+      socket.off('scriptFailure');
+      socket.off('scriptError');
+      socket.off('scriptCancelled');
+    };
+  }, [socket]);
+
   // Fetch User Flows
   useEffect(() => {
     const fetchUserFlows = async () => {
@@ -42,7 +109,7 @@ const Home = () => {
       try {
         const response = await axios.get(`http://localhost:5000/api/public/users/${user.id}/flows`, {
           headers: {
-            'x-user-id': 'test-user', // Use a fixed identifier for testing
+            'x-user-id': 'test-user', // Use a fixed identifier for testing; replace with dynamic ID
           },
         });
 
@@ -68,18 +135,22 @@ const Home = () => {
   // Handlers
   const handleFlowChange = (e) => {
     setSelectedFlow(e.target.value);
-    updateOkButtonState(e.target.value, selectedFile);
+    // No need for updateOkButtonState as it's handled by the 'disabled' prop
   };
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
+    console.log('handleFileChange called with file:', file);
     validateAndSetFile(file);
+    // Reset the file input's value to allow selecting the same file again if needed
+    e.target.value = null;
   };
 
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
     const file = e.dataTransfer.files[0];
+    console.log('handleDrop called with file:', file);
     validateAndSetFile(file);
   };
 
@@ -94,6 +165,7 @@ const Home = () => {
   };
 
   const handleFilePickerClick = () => {
+    console.log('handleFilePickerClick called');
     fileInputRef.current.click();
   };
 
@@ -105,21 +177,17 @@ const Home = () => {
         file.name.endsWith('.xlsx'))
     ) {
       setSelectedFile(file);
+      console.log('File is valid:', file);
       setAlert({ show: false, message: '', variant: '' });
     } else {
       setSelectedFile(null);
+      console.log('Invalid file type:', file);
       setAlert({
         show: true,
         message: 'Please upload a valid CSV or Excel file.',
         variant: 'danger',
       });
     }
-    updateOkButtonState(selectedFlow, file);
-  };
-
-  const updateOkButtonState = (flow, file) => {
-    // This function can be used to enable/disable the OK button based on flow and file
-    // Currently handled by the 'disabled' prop in the OK button
   };
 
   const showAlertMessage = (message, variant) => {
@@ -131,159 +199,148 @@ const Home = () => {
       showAlertMessage('Please select both a flow and a file.', 'warning');
       return;
     }
-  
+
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('flowName', selectedFlow);
-  
+
     try {
-      setLoadingMessage('Processing your request...');
-      setShowLoading(true);
-  
       // Trigger Python script
-      const response = await axios.post('http://localhost:5000/api/trigger-python', formData, {
+      await axios.post('http://localhost:5000/api/trigger-python', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          'x-user-id': 'test-user', // Use a fixed identifier for testing
+          'x-user-id': 'test-user', // Use a fixed identifier for testing; replace with dynamic ID
         },
       });
-  
-      if (response.data) {
-        showAlertMessage(response.data.message || 'Flow processed successfully.', 'success');
-      } else {
-        showAlertMessage('Flow processed successfully.', 'success');
-      }
+
+      // The response and alerts are handled via Socket.io events
     } catch (error) {
       console.error('Error:', error);
       showAlertMessage(error.response?.data?.message || 'Failed to trigger Python script.', 'danger');
-    } finally {
       setShowLoading(false);
     }
   };
 
   const handleCancelClick = async () => {
     try {
-      setLoadingMessage('Cancelling operation...');
-      setShowLoading(true);
-
       // Cancel Python script
-      const response = await axios.post('http://localhost:5000/api/cancel-python-script', {}, {
+      await axios.post('http://localhost:5000/api/cancel-python-script', {}, {
         headers: {
           'Content-Type': 'application/json',
-          'x-user-id': 'test-user', // Use a fixed identifier for testing
+          'x-user-id': 'test-user', // Use a fixed identifier for testing; replace with dynamic ID
         },
       });
 
-      if (response.data) {
-        showAlertMessage(response.data.message || 'Operation cancelled successfully.', 'info');
-      } else {
-        showAlertMessage('Operation cancelled successfully.', 'info');
-      }
+      // The response and alerts are handled via Socket.io events
     } catch (error) {
       console.error('Error:', error);
       showAlertMessage('Failed to cancel Python script.', 'danger');
-    } finally {
       setShowLoading(false);
     }
   };
 
   return (
-    <Container className="mt-5">
-      <div className="text-center">
-        <h1 className="display-4 mb-4">Parabola Automation</h1>
-      </div>
-
-      <Card className="shadow-lg">
-        <Card.Header className="bg-primary text-white text-center">
-          <h5 className="mb-0">Upload Your CSV or Excel File</h5>
-        </Card.Header>
-        <Card.Body>
-          {/* Dropdown for selecting the flow */}
-          <Form.Group className="mb-4" controlId="flowSelection">
-            <Form.Label className="fw-bold">Select the Flow:</Form.Label>
-            {loadingFlows ? (
-              <div className="d-flex align-items-center">
-                <Spinner animation="border" size="sm" className="me-2" />
-                <span>Loading flows...</span>
-              </div>
-            ) : flowError ? (
-              <Alert variant="danger">{flowError}</Alert>
-            ) : (
-              <Form.Select
-                value={selectedFlow}
-                onChange={handleFlowChange}
-                required
-              >
-                <option value="" disabled>
-                  Choose a flow
-                </option>
-                {flowNames.map((name, index) => (
-                  <option key={index} value={name}>
-                    {name}
-                  </option>
-                ))}
-              </Form.Select>
-            )}
-          </Form.Group>
-
-          {/* Drag-and-drop area for CSV/Excel file upload */}
-          <div
-            ref={dropzoneRef}
-            id="dropzone"
-            className="border border-primary rounded p-4 text-center"
-            style={{ backgroundColor: '#f8f9fa', cursor: 'pointer' }}
-            onDrop={handleDrop}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onClick={handleFilePickerClick}
-          >
-            <p className="mb-2 fw-bold">Drag and drop your CSV or Excel file here</p>
-            <p className="text-muted">or</p>
-            <Button variant="primary" onClick={handleFilePickerClick}>
-              Choose File
-            </Button>
-            <Form.Control
-              type="file"
-              ref={fileInputRef}
-              accept=".csv, .xlsx, .xls"
-              className="d-none"
-              onChange={handleFileChange}
-            />
-          </div>
-
-          {/* Feedback for the uploaded file */}
-          <div className="mt-3 text-muted">
-            {selectedFile ? `Selected file: ${selectedFile.name}` : 'No file selected.'}
-          </div>
-
-          {/* OK button to trigger the Python code */}
-          <div className="mt-4 text-center">
-            <Button
-              variant="success"
-              size="lg"
-              className="px-4"
-              onClick={handleOkClick}
-              disabled={!selectedFile || !selectedFlow}
-            >
-              OK
-            </Button>
-          </div>
-        </Card.Body>
-      </Card>
-
-      {/* Alert Messages */}
+    <>
+      {/* Alert Messages Positioned at the Top */}
       {alert.show && (
         <Alert
           variant={alert.variant}
           onClose={() => setAlert({ show: false, message: '', variant: '' })}
           dismissible
-          className="mt-4"
+          className="fixed-top m-3 w-100"
+          style={{ zIndex: 1050, top: '0', left: '0', right: '0', borderRadius: '0' }}
         >
-          {alert.message}
+          <Container>
+            {alert.message}
+          </Container>
         </Alert>
       )}
 
-      {/* Loading Screen */}
+      <Container className="mt-5">
+        <div className="text-center mb-4">
+          <h1 className="display-4">Parabola Automation</h1>
+        </div>
+
+        <Card className="shadow-lg">
+          <Card.Header className="bg-primary text-white text-center">
+            <h5 className="mb-0">Upload Your CSV or Excel File</h5>
+          </Card.Header>
+          <Card.Body>
+            {/* Dropdown for selecting the flow */}
+            <Form.Group className="mb-4" controlId="flowSelection">
+              <Form.Label className="fw-bold">Select the Flow:</Form.Label>
+              {loadingFlows ? (
+                <div className="d-flex align-items-center">
+                  <Spinner animation="border" size="sm" className="me-2" />
+                  <span>Loading flows...</span>
+                </div>
+              ) : flowError ? (
+                <Alert variant="danger">{flowError}</Alert>
+              ) : (
+                <Form.Select
+                  value={selectedFlow}
+                  onChange={handleFlowChange}
+                  required
+                >
+                  <option value="" disabled>
+                    Choose a flow
+                  </option>
+                  {flowNames.map((name, index) => (
+                    <option key={index} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </Form.Select>
+              )}
+            </Form.Group>
+
+            {/* Drag-and-drop area for CSV/Excel file upload */}
+            <div
+              ref={dropzoneRef}
+              id="dropzone"
+              className="border border-primary rounded p-4 text-center"
+              style={{ backgroundColor: '#f8f9fa', cursor: 'pointer' }}
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onClick={handleFilePickerClick}
+            >
+              <p className="mb-2 fw-bold">Drag and drop your CSV or Excel file here</p>
+              <p className="text-muted">or</p>
+              <Button variant="primary" onClick={handleFilePickerClick}>
+                Choose File
+              </Button>
+              <Form.Control
+                type="file"
+                ref={fileInputRef}
+                accept=".csv, .xlsx, .xls"
+                className="d-none"
+                onChange={handleFileChange}
+              />
+            </div>
+
+            {/* Feedback for the uploaded file */}
+            <div className="mt-3 text-muted">
+              {selectedFile ? `Selected file: ${selectedFile.name}` : 'No file selected.'}
+            </div>
+
+            {/* OK button to trigger the Python code */}
+            <div className="mt-4 text-center">
+              <Button
+                variant="success"
+                size="lg"
+                className="px-4"
+                onClick={handleOkClick}
+                disabled={!selectedFile || !selectedFlow}
+              >
+                OK
+              </Button>
+            </div>
+          </Card.Body>
+        </Card>
+      </Container>
+
+      {/* Loading and Status Modal */}
       <Modal
         show={showLoading}
         onHide={() => {}}
@@ -301,7 +358,7 @@ const Home = () => {
           </Button>
         </Modal.Body>
       </Modal>
-    </Container>
+    </>
   );
 };
 

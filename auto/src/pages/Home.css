@@ -2,4 +2,12 @@
 .home-container {
     padding: 20px;
   }
-  
+  /* src/pages/Home.css */
+.fixed-top-alert {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1050;
+  border-radius: 0;
+}

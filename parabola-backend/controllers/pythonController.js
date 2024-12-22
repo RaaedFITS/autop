@@ -52,6 +52,8 @@ const upload = multer({ storage, fileFilter }).single('file');
 
 // Controller to trigger Python script
 const triggerPythonScript = (req, res) => {
+  const io = req.io; // Access Socket.io instance from middleware
+
   // Handle file upload
   upload(req, res, async (err) => {
     if (err instanceof multer.MulterError) {
@@ -77,7 +79,7 @@ const triggerPythonScript = (req, res) => {
       return res.status(400).json({ message: 'File upload failed. Please upload a valid file.' });
     }
 
-    // For testing purposes, assign a unique user ID or identifier
+    // Assign a unique user ID or identifier
     // In a real-world scenario, this would come from the authenticated user
     const userId = req.headers['x-user-id'] || 'test-user'; // Use a custom header for identification
 
@@ -107,6 +109,9 @@ const triggerPythonScript = (req, res) => {
     // Store the process in the runningProcesses object
     runningProcesses[userId] = pythonProcess;
 
+    // Notify frontend that the script has started
+    io.to(userId).emit('scriptStarted', { message: 'Python script started.' });
+
     try {
       // Await the completion of the Python script
       const scriptResult = await new Promise((resolve, reject) => {
@@ -115,13 +120,13 @@ const triggerPythonScript = (req, res) => {
         // Listen for data from stdout
         pythonProcess.stdout.on('data', (data) => {
           console.log(`User ${userId} stdout: ${data}`);
-          // You can parse the output to determine success if your script outputs specific messages
+          // Optionally, emit partial progress updates
         });
 
         // Listen for data from stderr
         pythonProcess.stderr.on('data', (data) => {
           console.error(`User ${userId} stderr: ${data}`);
-          // Handle errors or log them
+          io.to(userId).emit('scriptError', { message: data.toString() });
         });
 
         // Listen for process exit
@@ -134,6 +139,7 @@ const triggerPythonScript = (req, res) => {
         // Handle unexpected errors
         pythonProcess.on('error', (error) => {
           console.error(`Error executing Python script for user ${userId}: ${error.message}`);
+          io.to(userId).emit('scriptError', { message: error.message });
           reject(error);
         });
       });
@@ -148,10 +154,12 @@ const triggerPythonScript = (req, res) => {
         }
       });
 
-      // Send response based on script success
+      // Send response and notify frontend based on script success
       if (scriptResult) {
+        io.to(userId).emit('scriptSuccess', { message: 'Python script executed successfully.' });
         return res.status(200).json({ message: 'Python script executed successfully.' });
       } else {
+        io.to(userId).emit('scriptFailure', { message: 'Python script failed to execute.' });
         return res.status(500).json({ message: 'Python script failed to execute.' });
       }
     } catch (error) {
@@ -164,6 +172,7 @@ const triggerPythonScript = (req, res) => {
           console.error(`Error deleting file after failure: ${err.message}`);
         }
       });
+      io.to(userId).emit('scriptError', { message: 'Failed to execute Python script.' });
       return res.status(500).json({ message: 'Failed to execute Python script.' });
     }
   });
@@ -171,7 +180,8 @@ const triggerPythonScript = (req, res) => {
 
 // Controller to cancel Python script
 const cancelPythonScript = (req, res) => {
-  // For testing purposes, assign a unique user ID or identifier
+  const io = req.io; // Access Socket.io instance from middleware
+  // Assign a unique user ID or identifier
   const userId = req.headers['x-user-id'] || 'test-user'; // Use a custom header for identification
 
   const pythonProcess = runningProcesses[userId];
@@ -186,6 +196,8 @@ const cancelPythonScript = (req, res) => {
     console.log(`User ${userId} cancelled the Python script.`);
     // Remove the process from runningProcesses
     delete runningProcesses[userId];
+    // Notify frontend about the cancellation
+    io.to(userId).emit('scriptCancelled', { message: 'Python script cancelled successfully.' });
     res.status(200).json({ message: 'Python script cancelled successfully.' });
   } catch (error) {
     console.error(`Error cancelling Python script for user ${userId}: ${error.message}`);
