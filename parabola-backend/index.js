@@ -20,7 +20,7 @@ app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/flows', flowRoutes);
-app.use('/api/python', pythonRoutes);
+app.use('/api', pythonRoutes);
 app.use('/api/public/users', publicUsersRoute); // Public user management routes
 
 // Root Route

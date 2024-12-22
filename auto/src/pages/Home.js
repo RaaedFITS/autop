@@ -14,7 +14,7 @@ import axios from 'axios'; // Import Axios for API calls
 
 const Home = () => {
   // Access AuthContext
-  const { user, token } = useContext(AuthContext);
+  const { user } = useContext(AuthContext);
 
   // State Variables
   const [flowNames, setFlowNames] = useState([]);
@@ -34,7 +34,7 @@ const Home = () => {
   useEffect(() => {
     const fetchUserFlows = async () => {
       if (!user || !user.id) {
-        setFlowError('User not authenticated.');
+        setFlowError('User not identified.');
         setLoadingFlows(false);
         return;
       }
@@ -42,8 +42,7 @@ const Home = () => {
       try {
         const response = await axios.get(`http://localhost:5000/api/public/users/${user.id}/flows`, {
           headers: {
-            // Include Authorization header if the route is protected
-            Authorization: `Bearer ${token}`,
+            'x-user-id': 'test-user', // Use a fixed identifier for testing
           },
         });
 
@@ -64,7 +63,7 @@ const Home = () => {
     };
 
     fetchUserFlows();
-  }, [user, token]);
+  }, [user]);
 
   // Handlers
   const handleFlowChange = (e) => {
@@ -132,23 +131,23 @@ const Home = () => {
       showAlertMessage('Please select both a flow and a file.', 'warning');
       return;
     }
-
+  
     const formData = new FormData();
     formData.append('file', selectedFile);
     formData.append('flowName', selectedFlow);
-
+  
     try {
       setLoadingMessage('Processing your request...');
       setShowLoading(true);
-
+  
       // Trigger Python script
-      const response = await axios.post('/api/trigger-python', formData, {
+      const response = await axios.post('http://localhost:5000/api/trigger-python', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
-          // Authorization header is already set globally via AuthContext
+          'x-user-id': 'test-user', // Use a fixed identifier for testing
         },
       });
-
+  
       if (response.data) {
         showAlertMessage(response.data.message || 'Flow processed successfully.', 'success');
       } else {
@@ -167,11 +166,11 @@ const Home = () => {
       setLoadingMessage('Cancelling operation...');
       setShowLoading(true);
 
-      // Assuming there's an API endpoint to cancel the Python script
-      const response = await axios.post('/api/cancel-python-script', {}, {
+      // Cancel Python script
+      const response = await axios.post('http://localhost:5000/api/cancel-python-script', {}, {
         headers: {
           'Content-Type': 'application/json',
-          // Authorization header is already set globally via AuthContext
+          'x-user-id': 'test-user', // Use a fixed identifier for testing
         },
       });
 

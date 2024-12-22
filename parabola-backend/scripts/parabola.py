@@ -36,8 +36,8 @@ try:
     email_field = browser.find_element(By.XPATH, "//input[@placeholder='you@company.com']")
     password_field = browser.find_element(By.XPATH, "//input[@type='password']")
     login_button = browser.find_element(By.XPATH, "//button[contains(text(), 'Sign in')]")
-    email_field.send_keys("itadmin@fitsexpress.com")
-    password_field.send_keys("W1KI2G{8Oo$/|(")
+    email_field.send_keys("rbucksimiar@gmail.com")
+    password_field.send_keys("Raaed123#")
     login_button.click()
 
     print("DEBUG: Waiting for dashboard")
