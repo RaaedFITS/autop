@@ -155,6 +155,23 @@ try:
     print("DEBUG: Clicked on the first 'Run Flow' button")
     time.sleep(5)
 
+    # Wait for the second "Run Flow" button to appear and click it
+
+    print("DEBUG: Waiting for the second 'Run Flow' button to become visible")
+
+    second_run_flow_button = WebDriverWait(browser, 30).until(
+
+        EC.element_to_be_clickable((By.XPATH, "//div[@class='css-1aj1cwm el2um1b0']//div[contains(@class, 'css-1yzkv2u') and text()='Run Flow']"))
+
+    )
+
+    print("DEBUG: The second 'Run Flow' button is now clickable")
+
+    second_run_flow_button.click()
+
+    print("DEBUG: Clicked on the second 'Run Flow' button")
+
+    time.sleep(5)
 
 except TimeoutException as te:
     print("ERROR: A timeout occurred while waiting for an element.")

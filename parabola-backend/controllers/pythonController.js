@@ -4,35 +4,10 @@ const multer = require('multer');
 const { spawn } = require('child_process');
 const fs = require('fs');
 const kill = require('tree-kill'); // Import tree-kill
+const tmp = require('tmp'); // Import tmp for temporary files
 
-// Define the upload path
-const uploadPath = path.join(__dirname, '..', 'uploads');
-
-// Ensure the uploads directory exists
-try {
-  if (!fs.existsSync(uploadPath)) {
-    fs.mkdirSync(uploadPath, { recursive: true });
-    console.log(`Created uploads directory at ${uploadPath}`);
-  }
-} catch (err) {
-  console.error(`Failed to create uploads directory at ${uploadPath}: ${err.message}`);
-  process.exit(1); // Exit the server if the uploads directory cannot be created
-}
-
-// In-memory store to keep track of running processes (userId: childProcess)
-const runningProcesses = {};
-
-// Configure Multer for file uploads
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, uploadPath);
-  },
-  filename: function (req, file, cb) {
-    // Generate a unique filename to prevent collisions
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + '-' + file.originalname);
-  }
-});
+// Configure Multer for memory storage
+const storage = multer.memoryStorage();
 
 // File filter to accept only CSV and Excel files
 const fileFilter = (req, file, cb) => {
@@ -50,6 +25,15 @@ const fileFilter = (req, file, cb) => {
 
 // Initialize Multer
 const upload = multer({ storage, fileFilter }).single('file');
+
+// In-memory store to keep track of running processes (userId: childProcess)
+const runningProcesses = {};
+
+// In-memory store to track cancellation requests (userId: boolean)
+const cancellationRequested = {};
+
+// In-memory store to track temporary files (userId: tempFileInfo)
+const userTempFiles = {};
 
 // Controller to trigger Python script
 const triggerPythonScript = (req, res) => {
@@ -104,8 +88,21 @@ const triggerPythonScript = (req, res) => {
       return res.status(500).json({ message: 'Python script not found on the server.' });
     }
 
+    // Create a temporary file to store the uploaded file buffer
+    let tempFileInfo;
+    try {
+      tempFileInfo = tmp.fileSync({ postfix: path.extname(file.originalname) });
+      fs.writeFileSync(tempFileInfo.name, file.buffer);
+      console.log(`Created temporary file at ${tempFileInfo.name}`);
+      // Store tempFileInfo in userTempFiles
+      userTempFiles[userId] = tempFileInfo;
+    } catch (tmpErr) {
+      console.error(`Error creating temporary file: ${tmpErr.message}`);
+      return res.status(500).json({ message: 'Failed to process uploaded file.' });
+    }
+
     // Spawn the Python process
-    const pythonProcess = spawn('python', [pythonScriptPath, flowName, file.path]);
+    const pythonProcess = spawn('python', [pythonScriptPath, flowName, tempFileInfo.name]);
 
     // Store the process in the runningProcesses object
     runningProcesses[userId] = pythonProcess;
@@ -150,12 +147,16 @@ const triggerPythonScript = (req, res) => {
       delete runningProcesses[userId];
       console.log(`Removed running process for user ${userId}`);
 
-      // Delete the uploaded file after processing
-      fs.unlink(file.path, (err) => {
-        if (err) {
-          console.error(`Error deleting file: ${err.message}`);
+      // Clean up the temporary file
+      if (userTempFiles[userId]) {
+        try {
+          userTempFiles[userId].removeCallback();
+          console.log(`Deleted temporary file at ${userTempFiles[userId].name} for user ${userId}`);
+          delete userTempFiles[userId];
+        } catch (cleanupErr) {
+          console.error(`Error deleting temporary file: ${cleanupErr.message}`);
         }
-      });
+      }
 
       // Handle based on script result
       if (scriptResult.success) {
@@ -164,10 +165,12 @@ const triggerPythonScript = (req, res) => {
         return res.status(200).json({ message: 'Python script executed successfully.' });
       } else {
         // Differentiate between cancellation and actual errors
-        if (scriptResult.exitCode === 2) {
-          // Exit code 2 indicates cancellation
+        if (scriptResult.exitCode === 2 || (scriptResult.exitCode === 1 && cancellationRequested[userId])) {
+          // Exit code 2 indicates cancellation, or exit code 1 with cancellation requested
           io.to(userId).emit('scriptCancelled', { message: 'Python script was cancelled.' });
           console.log(`Emitted 'scriptCancelled' to user ${userId}`);
+          // Reset the cancellation flag
+          cancellationRequested[userId] = false;
           return res.status(200).json({ message: 'Python script was cancelled.' });
         }
 
@@ -184,12 +187,16 @@ const triggerPythonScript = (req, res) => {
       console.error(`Script execution error for user ${userId}: ${error.message}`);
       // Remove the process from runningProcesses in case of error
       delete runningProcesses[userId];
-      // Delete the uploaded file after failure
-      fs.unlink(file.path, (err) => {
-        if (err) {
-          console.error(`Error deleting file after failure: ${err.message}`);
+      // Clean up the temporary file
+      if (userTempFiles[userId]) {
+        try {
+          userTempFiles[userId].removeCallback();
+          console.log(`Deleted temporary file at ${userTempFiles[userId].name} for user ${userId}`);
+          delete userTempFiles[userId];
+        } catch (cleanupErr) {
+          console.error(`Error deleting temporary file: ${cleanupErr.message}`);
         }
-      });
+      }
       // Emit a generic scriptError event
       io.to(userId).emit('scriptError', { message: 'Failed to execute Python script.' });
       console.log(`Emitted 'scriptError' to user ${userId}`);
@@ -212,6 +219,9 @@ const cancelPythonScript = (req, res) => {
     return res.status(400).json({ message: 'No running script found for this user.' });
   }
 
+  // Set the cancellation flag
+  cancellationRequested[userId] = true;
+
   console.log(`Attempting to terminate Python process with PID: ${pythonProcess.pid} for user: ${userId}`);
 
   kill(pythonProcess.pid, 'SIGTERM', (err) => {
@@ -224,6 +234,18 @@ const cancelPythonScript = (req, res) => {
     delete runningProcesses[userId];
     io.to(userId).emit('scriptCancelled', { message: 'Python script cancelled successfully.' });
     res.status(200).json({ message: 'Python script cancelled successfully.' });
+
+    // Clean up the temporary file if it exists
+    const tempFileInfo = userTempFiles[userId];
+    if (tempFileInfo) {
+      try {
+        tempFileInfo.removeCallback();
+        console.log(`Deleted temporary file at ${tempFileInfo.name} for user ${userId}`);
+        delete userTempFiles[userId];
+      } catch (cleanupErr) {
+        console.error(`Error deleting temporary file: ${cleanupErr.message}`);
+      }
+    }
   });
 };
 
