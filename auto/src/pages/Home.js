@@ -230,7 +230,7 @@ const Home = () => {
           'x-user-id': 'test-user', // Use a fixed identifier for testing; replace with dynamic ID
         },
       });
-
+  
       // The response and alerts are handled via Socket.io events
     } catch (error) {
       console.error('Error:', error);

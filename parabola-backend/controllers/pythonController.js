@@ -3,6 +3,7 @@ const path = require('path');
 const multer = require('multer');
 const { spawn } = require('child_process');
 const fs = require('fs');
+const kill = require('tree-kill'); // Import tree-kill
 
 // Define the upload path
 const uploadPath = path.join(__dirname, '..', 'uploads');
@@ -199,31 +200,31 @@ const triggerPythonScript = (req, res) => {
 
 // Controller to cancel Python script
 const cancelPythonScript = (req, res) => {
-  const io = req.io; // Access Socket.io instance from middleware
-  // Assign a unique user ID or identifier
-  const userId = req.headers['x-user-id'] || 'test-user'; // Use a custom header for identification
+  const io = req.io;
+  const userId = req.headers['x-user-id'] || 'test-user';
+
+  console.log(`Received cancellation request from user: ${userId}`);
 
   const pythonProcess = runningProcesses[userId];
 
   if (!pythonProcess) {
+    console.warn(`No running script found for user: ${userId}`);
     return res.status(400).json({ message: 'No running script found for this user.' });
   }
 
-  try {
-    // Kill the Python process
-    pythonProcess.kill('SIGTERM'); // Sends SIGTERM signal
-    console.log(`User ${userId} cancelled the Python script.`);
-    // Remove the process from runningProcesses
+  console.log(`Attempting to terminate Python process with PID: ${pythonProcess.pid} for user: ${userId}`);
+
+  kill(pythonProcess.pid, 'SIGTERM', (err) => {
+    if (err) {
+      console.error(`Failed to kill process ${pythonProcess.pid}: ${err.message}`);
+      return res.status(500).json({ message: 'Failed to cancel Python script.' });
+    }
+
+    console.log(`Successfully terminated Python process with PID: ${pythonProcess.pid} for user: ${userId}`);
     delete runningProcesses[userId];
-    // Notify frontend about the cancellation
     io.to(userId).emit('scriptCancelled', { message: 'Python script cancelled successfully.' });
     res.status(200).json({ message: 'Python script cancelled successfully.' });
-  } catch (error) {
-    console.error(`Error cancelling Python script for user ${userId}: ${error.message}`);
-    res.status(500).json({ message: 'Failed to cancel Python script.' });
-  }
+  });
 };
 
 module.exports = { triggerPythonScript, cancelPythonScript };
-
-
