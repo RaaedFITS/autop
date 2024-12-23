@@ -307,7 +307,13 @@ const Home = () => {
             >
               <p className="mb-2 fw-bold">Drag and drop your CSV or Excel file here</p>
               <p className="text-muted">or</p>
-              <Button variant="primary" onClick={handleFilePickerClick}>
+              <Button
+                variant="primary"
+                onClick={(e) => {
+                  e.stopPropagation(); // Prevent the event from bubbling up to the dropzone
+                  handleFilePickerClick();
+                }}
+              >
                 Choose File
               </Button>
               <Form.Control

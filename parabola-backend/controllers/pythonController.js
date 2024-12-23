@@ -111,41 +111,43 @@ const triggerPythonScript = (req, res) => {
 
     // Notify frontend that the script has started
     io.to(userId).emit('scriptStarted', { message: 'Python script started.' });
+    console.log(`Emitted 'scriptStarted' to user ${userId}`);
 
     try {
       // Await the completion of the Python script
       const scriptResult = await new Promise((resolve, reject) => {
         let scriptSuccess = false;
+        let stderrData = '';
 
         // Listen for data from stdout
         pythonProcess.stdout.on('data', (data) => {
           console.log(`User ${userId} stdout: ${data}`);
-          // Optionally, emit partial progress updates
+          // Optionally, emit partial progress updates here
         });
 
         // Listen for data from stderr
         pythonProcess.stderr.on('data', (data) => {
           console.error(`User ${userId} stderr: ${data}`);
-          io.to(userId).emit('scriptError', { message: data.toString() });
+          stderrData += data.toString();
         });
 
         // Listen for process exit
         pythonProcess.on('close', (code) => {
           console.log(`User ${userId} Python script exited with code ${code}`);
           scriptSuccess = code === 0;
-          resolve(scriptSuccess);
+          resolve({ success: scriptSuccess, exitCode: code, stderrData });
         });
 
         // Handle unexpected errors
         pythonProcess.on('error', (error) => {
           console.error(`Error executing Python script for user ${userId}: ${error.message}`);
-          io.to(userId).emit('scriptError', { message: error.message });
           reject(error);
         });
       });
 
       // Remove the process from runningProcesses
       delete runningProcesses[userId];
+      console.log(`Removed running process for user ${userId}`);
 
       // Delete the uploaded file after processing
       fs.unlink(file.path, (err) => {
@@ -154,12 +156,27 @@ const triggerPythonScript = (req, res) => {
         }
       });
 
-      // Send response and notify frontend based on script success
-      if (scriptResult) {
+      // Handle based on script result
+      if (scriptResult.success) {
         io.to(userId).emit('scriptSuccess', { message: 'Python script executed successfully.' });
+        console.log(`Emitted 'scriptSuccess' to user ${userId}`);
         return res.status(200).json({ message: 'Python script executed successfully.' });
       } else {
+        // Differentiate between cancellation and actual errors
+        if (scriptResult.exitCode === 2) {
+          // Exit code 2 indicates cancellation
+          io.to(userId).emit('scriptCancelled', { message: 'Python script was cancelled.' });
+          console.log(`Emitted 'scriptCancelled' to user ${userId}`);
+          return res.status(200).json({ message: 'Python script was cancelled.' });
+        }
+
+        // For other non-zero exit codes, emit scriptError and scriptFailure
+        if (scriptResult.stderrData) {
+          io.to(userId).emit('scriptError', { message: scriptResult.stderrData });
+          console.log(`Emitted 'scriptError' to user ${userId}`);
+        }
         io.to(userId).emit('scriptFailure', { message: 'Python script failed to execute.' });
+        console.log(`Emitted 'scriptFailure' to user ${userId}`);
         return res.status(500).json({ message: 'Python script failed to execute.' });
       }
     } catch (error) {
@@ -172,7 +189,9 @@ const triggerPythonScript = (req, res) => {
           console.error(`Error deleting file after failure: ${err.message}`);
         }
       });
+      // Emit a generic scriptError event
       io.to(userId).emit('scriptError', { message: 'Failed to execute Python script.' });
+      console.log(`Emitted 'scriptError' to user ${userId}`);
       return res.status(500).json({ message: 'Failed to execute Python script.' });
     }
   });
@@ -192,7 +211,7 @@ const cancelPythonScript = (req, res) => {
 
   try {
     // Kill the Python process
-    pythonProcess.kill('SIGTERM'); // You can also use 'SIGKILL' if necessary
+    pythonProcess.kill('SIGTERM'); // Sends SIGTERM signal
     console.log(`User ${userId} cancelled the Python script.`);
     // Remove the process from runningProcesses
     delete runningProcesses[userId];
@@ -206,3 +225,5 @@ const cancelPythonScript = (req, res) => {
 };
 
 module.exports = { triggerPythonScript, cancelPythonScript };
+
+

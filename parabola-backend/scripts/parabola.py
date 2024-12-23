@@ -1,13 +1,40 @@
 import sys
+import signal
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, ElementClickInterceptedException
+from selenium.common.exceptions import (
+    TimeoutException,
+    ElementClickInterceptedException,
+    NoSuchElementException,
+    WebDriverException
+)
 import time
 import traceback
 
+# Global browser variable to be accessible in the signal handler
+browser = None
+
+def handle_termination(signum, frame):
+    """
+    Signal handler to gracefully terminate the script.
+    Closes the Selenium browser and exits with code 2 indicating cancellation.
+    """
+    print(f"DEBUG: Received termination signal ({signum}). Closing the browser.")
+    global browser
+    if browser:
+        try:
+            browser.quit()
+            print("DEBUG: Browser closed due to termination.")
+        except Exception as e:
+            print(f"ERROR: Error while closing the browser during termination: {e}")
+    sys.exit(2)  # Exit code 2 indicates cancellation
+
+# Register signal handlers for graceful termination
+signal.signal(signal.SIGTERM, handle_termination)
+signal.signal(signal.SIGINT, handle_termination)  # Optional: handle Ctrl+C
 
 if len(sys.argv) < 3:
     print("ERROR: Provide the flow name and file path as arguments.")
@@ -18,16 +45,16 @@ file_path = sys.argv[2]
 print(f"DEBUG: Flow name: {flow_name}, File path: {file_path}")
 
 options = webdriver.ChromeOptions()
-# Uncomment the next line for headless mode
-#options.add_argument("--headless")
+# Uncomment the next line for headless mode if needed
+# options.add_argument("--headless")
 options.add_argument("--disable-gpu")
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 options.add_argument("--window-size=1920,1080")
 
-browser = webdriver.Chrome(options=options)
-
 try:
+    browser = webdriver.Chrome(options=options)
+
     print("DEBUG: Navigating to Parabola login page")
     browser.get('https://parabola.io/app/flows/home')
     browser.implicitly_wait(10)
@@ -51,12 +78,8 @@ try:
         payment_modal_dismiss.click()
         time.sleep(3)
         print("DEBUG: Closed payment error modal using ActionChains.")
-    
     except TimeoutException:
         print("DEBUG: No payment error modal detected.")
-        
-
-
 
     print(f"DEBUG: Looking for flow '{flow_name}'")
     flow_link = WebDriverWait(browser, 30).until(
@@ -64,7 +87,8 @@ try:
     )
     flow_link.click()
     print(f"DEBUG: Flow '{flow_name}' opened")
-      # Handle modal popups with payment error
+
+    # Handle modal popups with payment error
     try:
         payment_modal_dismiss = WebDriverWait(browser, 10).until(
             EC.element_to_be_clickable((By.XPATH, "//div[@class='modal-dismiss css-5kqtmx']"))
@@ -72,10 +96,9 @@ try:
         payment_modal_dismiss.click()
         time.sleep(3)
         print("DEBUG: Closed payment error modal using ActionChains.")
-    
     except TimeoutException:
         print("DEBUG: No payment error modal detected.")
-        
+
     # Wait for the parent node that contains either "Pull from CSV file" or "Pull from Excel file"
     print("DEBUG: Locating the specific node (CSV or Excel)")
     parent_node = WebDriverWait(browser, 30).until(
@@ -99,7 +122,6 @@ try:
     actions.double_click(deepest_element).perform()
     print("DEBUG: Double-click completed")
     time.sleep(3)
-
 
     # Locate and upload file
     print("DEBUG: Locating the file upload input element")
@@ -133,40 +155,31 @@ try:
     print("DEBUG: Clicked on the first 'Run Flow' button")
     time.sleep(5)
 
-    # Wait for the second "Run Flow" button to appear and click it
-    print("DEBUG: Waiting for the second 'Run Flow' button to become visible")
-    second_run_flow_button = WebDriverWait(browser, 30).until(
-        EC.element_to_be_clickable((By.XPATH, "//div[@class='css-1aj1cwm el2um1b0']//div[contains(@class, 'css-1yzkv2u') and text()='Run Flow']"))
-    )
-    print("DEBUG: The second 'Run Flow' button is now clickable")
-    second_run_flow_button.click()
-    print("DEBUG: Clicked on the second 'Run Flow' button")
-    time.sleep(5)
-
-    # Wait for the "Run Flow" button to return to its initial state
-    print("DEBUG: Waiting for the 'Run Flow' button to return to its initial state")
-    WebDriverWait(browser, 30).until(
-        EC.presence_of_element_located((By.XPATH, "//button[contains(@class, 'css-hgd1m') and contains(text(), 'Run Flow')]"))
-    )
-    print("DEBUG: The 'Run Flow' button has returned to its initial state")
 
 except TimeoutException as te:
     print("ERROR: A timeout occurred while waiting for an element.")
     print(f"ERROR Details: {te}")
     traceback.print_exc()
+    sys.exit(1)
 except NoSuchElementException as nse:
     print("ERROR: An element could not be found on the page.")
     print(f"ERROR Details: {nse}")
     traceback.print_exc()
+    sys.exit(1)
 except WebDriverException as wde:
     print("ERROR: A WebDriver related error occurred.")
     print(f"ERROR Details: {wde}")
     traceback.print_exc()
+    sys.exit(1)
 except Exception as e:
     print("ERROR: An unexpected error occurred.")
     print(f"ERROR Details: {e}")
     traceback.print_exc()
+    sys.exit(1)
 finally:
     print("DEBUG: Closing the browser")
-    browser.quit()
+    try:
+        browser.quit()
+    except Exception as e:
+        print(f"ERROR: Error while closing the browser: {e}")
     print("Browser closed")
